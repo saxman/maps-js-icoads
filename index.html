@@ -1,0 +1,399 @@
+<!doctype html>
+<html>
+  <head>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta charset="utf-8">
+    <meta http-equiv="Pragma" content="no-cache">
+    
+    <title>Ships in CanvasLayer</title>
+
+    <link href="style.css" rel="stylesheet" />
+
+    <script src="https://maps.googleapis.com/maps/api/js?sensor=false"></script>
+    <script src="scripts/CanvasLayer.js"></script>
+    <script src="scripts/ShaderProgram.js"></script>
+    <script src="scripts/map_style.js"></script>
+
+    <script>
+      var DATA_DIR = 'data/bin/';
+      var SEGMENT_FILE_EXT = '.bin.gz';
+
+      var map;
+      var canvasLayer;
+      var gl;
+
+      var pointProgram;
+      var pointArrayBuffer;
+
+      var pixelsToWebGLMatrix = new Float32Array(16);
+      var mapMatrix = new Float32Array(16);
+
+      var pointScale;
+      var globalAlpha;
+
+      var loadDataTimeout;
+
+      var dataCols = 3;
+      var data = new Float32Array(0);
+
+      var totalSegments;
+      var segIndex = 0;
+      var data_ct = 0;
+
+      var bufferSize;
+
+      var lat = 0;
+      var lng = 0;
+      var zoom = 3;
+
+      var paused = false;
+
+      var xhr;
+
+      var segSliderInterrupt = false;
+
+      function initialize() {
+        if (x = getParameterByName('zoom')) {
+          zoom = parseInt(x);
+        }
+
+        if (x = getParameterByName('lat')) {
+          lat = parseInt(x);
+        }
+
+        if (x = getParameterByName('lng')) {
+          lng = parseInt(x);
+        }
+
+        var mapOptions = {
+          zoom: zoom,
+          minZoom: 3,
+          center: new google.maps.LatLng(lat, lng),
+          mapTypeId: google.maps.MapTypeId.ROADMAP,
+          disableDefaultUI: true,
+          zoomControl: true,
+          zoomControlOptions: {
+            style: google.maps.ZoomControlStyle.LARGE,
+            position: google.maps.ControlPosition.LEFT_CENTER
+          },
+          styles: style
+        };
+
+        map = new google.maps.Map(
+          document.getElementById('map-div'),
+          mapOptions
+        );
+
+        window.addEventListener('resize', function(event){
+          google.maps.event.trigger(map, 'resize')
+        });
+
+        google.maps.event.addListener(map, 'dragend', function() {
+          lat = map.getCenter().lat();
+          lng = map.getCenter().lng();
+          updateLocationHistory();
+        });
+
+        google.maps.event.addListener(map, 'zoom_changed', function() {
+          zoom = map.getZoom();
+          updateLocationHistory();
+        });
+
+        var mapAttribution = document.getElementById('map-attribution');
+        map.controls[google.maps.ControlPosition.BOTTOM_RIGHT].push(mapAttribution);
+
+        var slider1 = document.getElementById('scale-slider');
+        slider1.addEventListener('input', function(e) {
+          pointScale = parseFloat(slider1.value);
+          canvasLayer.scheduleUpdate();
+        }, false);
+        pointScale = parseFloat(slider1.value);
+
+        var slider2 = document.getElementById('alpha-slider');
+        slider2.addEventListener('input', function(e) {
+          globalAlpha = parseFloat(slider2.value);
+          canvasLayer.scheduleUpdate();
+        }, false);
+        globalAlpha = parseFloat(slider2.value);
+
+        var slider3 = document.getElementById('playback-slider');
+        slider3.addEventListener('mouseup', function(e) {
+          xhr.abort();
+          segIndex = slider3.value;
+          segSliderInterrupt = false;
+          loadData(DATA_DIR + "coords" + segIndex + SEGMENT_FILE_EXT);
+        }, false);
+        slider3.addEventListener('mousedown', function(e) {
+          segSliderInterrupt = true;
+        }, false);
+
+        var slider4 = document.getElementById('buffer-slider');
+        slider4.addEventListener('mouseup', function(e) {
+          bufferSize = slider4.value;
+        }, false);
+        bufferSize = slider4.value;
+
+        var slider5 = document.getElementById('load-data-timeout-slider');
+        slider5.addEventListener('input', function(e) {
+          loadDataTimeout = slider5.value;
+        }, false);
+        loadDataTimeout = slider5.value;
+
+        document.getElementById('pause-button').addEventListener('click',
+          function() {
+            paused = !paused;
+            if (paused) {
+              document.getElementById('pause-button').src = 'images/play.png';
+              updateLocationHistory();
+            } else {
+              document.getElementById('pause-button').src = 'images/pause.png';
+              loadData(DATA_DIR + "coords" + ++segIndex + SEGMENT_FILE_EXT);
+            }
+          }, false);
+
+        // initialize the canvasLayer
+        var canvasLayerOptions = {
+          map: map,
+          resizeHandler: resize,
+          animate: false,
+          updateHandler: update
+        };
+        canvasLayer = new CanvasLayer(canvasLayerOptions);
+
+        createShaderProgram();
+      }
+
+      function loadDataIndices() {
+        var xhr = new XMLHttpRequest();
+        var url = DATA_DIR + 'segs.idx?_time=' + (new Date()).getTime();
+        xhr.open('GET', url, true);
+        xhr.onload = onLoadDataIndicesCallback;
+        xhr.send();
+      }
+
+      function onLoadDataIndicesCallback() {
+        totalSegments = parseInt(this.response);
+
+        document.getElementById('playback-slider').max = totalSegments - 1;
+        if (seg = getParameterByName('seg')) {
+          segIndex = parseInt(seg);
+          if (segIndex == totalSegments - 1) {
+            segIndex = 0;
+          }
+        }
+
+        loadData(DATA_DIR + 'coords' + segIndex + SEGMENT_FILE_EXT);
+      }
+
+      function createShaderProgram() {
+        gl = canvasLayer.canvas.getContext('webgl');
+        gl.enable(gl.BLEND);
+        gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ONE, gl.ZERO);
+
+        ShaderProgram.fromXhr(gl, 'shader.vert', 'shader.frag', function(program) {
+          pointProgram = program;
+          pointProgram.use();
+
+          loadDataIndices();
+        });
+      }
+
+      function loadData(filename) {
+        xhr = new XMLHttpRequest();
+        var url = filename + '?_time=' + (new Date()).getTime();
+        xhr.open('GET', url, true);
+        xhr.responseType = 'arraybuffer';
+        xhr.onload = onLoadDataCallback;
+        xhr.send();
+      }
+
+      function onLoadDataCallback() {
+        var rawData = new Float32Array(this.response);
+
+        for (var i = 0; i < rawData.length; i += dataCols) {
+          rawData[i] = lngToX(rawData[i]);
+          rawData[i + 1] = latToY(rawData[i + 1]);
+        }
+
+        data_ct += rawData.length;
+
+        // if the new data array would be too large, trim off the front of the array
+        // NOTE: data length must be evenly divisible by the number of datum per coordinate (3 for lat,lng,pt).
+        var len = data.length + rawData.length;
+        if (len > bufferSize) {
+          data = data.subarray(data.length - bufferSize + rawData.length);
+          len = bufferSize;
+        }
+
+        var dataNew = new Float32Array(len);
+        dataNew.set(data);
+        dataNew.set(rawData, data.length);
+        data = dataNew;
+
+        // create webgl buffer, bind it, and load 'data' into it
+        pointArrayBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, pointArrayBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+
+        gl.enableVertexAttribArray(pointProgram.attributes.worldCoord);
+        gl.vertexAttribPointer(pointProgram.attributes.worldCoord, 2, gl.FLOAT, false, 4 * dataCols, 0);
+
+        gl.enableVertexAttribArray(pointProgram.attributes.pt);
+        gl.vertexAttribPointer(pointProgram.attributes.pt, 1, gl.FLOAT, false, 4 * dataCols, 8);
+
+        canvasLayer.scheduleUpdate();
+
+        document.getElementById('segments-status').innerHTML = ((segIndex + 1) * 100 / totalSegments).toFixed(2) + '%';
+        document.getElementById('buffer-status').innerHTML = localizeInt(data.length);
+        document.getElementById('data-status').innerHTML = localizeInt(data_ct / 2);
+
+        if (!segSliderInterrupt) {
+          document.getElementById('playback-slider').value = segIndex;
+        }
+
+        if (segIndex < totalSegments - 1) {
+          if (!paused) {
+            setTimeout(
+              function() {
+                loadData(DATA_DIR + 'coords' + ++segIndex + SEGMENT_FILE_EXT)
+              }, loadDataTimeout);
+          }
+        }
+      }
+
+      function resize() {
+        // var resolutionScale = window.devicePixelRatio || 1;
+        var resolutionScale = 1;
+
+        var canvasWidth = canvasLayer.canvas.width;
+        var canvasHeight = canvasLayer.canvas.height;
+
+        canvasLayer.canvas.width = canvasWidth * resolutionScale;
+        canvasLayer.canvas.height = canvasHeight * resolutionScale;
+
+        gl.viewport(0, 0, canvasWidth * resolutionScale, canvasHeight * resolutionScale);
+
+        pixelsToWebGLMatrix.set([2 / canvasWidth, 0, 0, 0, 0, -2 / canvasHeight, 0, 0, 0, 0, 0, 0, -1, 1, 0, 1]);
+      }
+
+      function scaleMatrix(matrix, scaleX, scaleY) {
+        // scaling x and y, which is just scaling first two columns of matrix
+        matrix[0] *= scaleX;
+        matrix[1] *= scaleX;
+        matrix[2] *= scaleX;
+        matrix[3] *= scaleX;
+
+        matrix[4] *= scaleY;
+        matrix[5] *= scaleY;
+        matrix[6] *= scaleY;
+        matrix[7] *= scaleY;
+      }
+
+      function translateMatrix(matrix, tx, ty) {
+        // translation is in last column of matrix
+        matrix[12] += matrix[0]*tx + matrix[4]*ty;
+        matrix[13] += matrix[1]*tx + matrix[5]*ty;
+        matrix[14] += matrix[2]*tx + matrix[6]*ty;
+        matrix[15] += matrix[3]*tx + matrix[7]*ty;
+      }
+
+      function update() {
+        // data not loaded yet
+        if (!data) {
+          return;
+        }
+
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        var mapProjection = map.getProjection();
+        
+        // copy pixel->webgl matrix
+        mapMatrix.set(pixelsToWebGLMatrix);
+
+        // Scale to current zoom (worldCoords * 2^zoom)
+        var scale = Math.pow(2, map.zoom);
+        scaleMatrix(mapMatrix, scale, scale);
+
+        // translate to current view (vector from topLeft to 0,0)
+        var offset = mapProjection.fromLatLngToPoint(canvasLayer.getTopLeft());
+        var unwrapped = map.getCenter().lng() - (map.getDiv().offsetWidth * 180) / (256 * scale);
+        offset.x = 256 * (unwrapped / 360 + 0.5);
+
+        translateMatrix(mapMatrix, -offset.x, -offset.y);
+
+        // attach matrix value to 'mapMatrix' uniform in shader
+        pointProgram.uniforms.mapMatrix(mapMatrix);
+
+        pointProgram.uniforms.pointSize(pointScale);
+        pointProgram.uniforms.pointAlpha(globalAlpha);
+
+        // draw!
+        gl.drawArrays(gl.POINTS, 0, data.length / dataCols);
+      }
+
+      function updateLocationHistory() {
+        // TODO move to a button in the UI (confusing)
+        return;
+
+        var path = location.pathname.split('/').pop();
+        path += '?seg=' + segIndex;
+
+        if (lat != 0 || lng != 0) {
+          path += '&lat=' + lat.toFixed(4) + '&lng=' + lng.toFixed(4);
+        }
+
+        path += '&zoom=' + zoom;
+
+        history.replaceState(null, null, path);
+      }
+
+      function lngToX(lng) {
+        if (lng > 180) {
+          return 256 * (lng / 360 - 0.5);
+        }
+        return 256 * (lng / 360 + 0.5);
+      }
+
+      function latToY(lat) {
+        var merc = -Math.log(Math.tan((0.25 + lat / 360) * Math.PI));
+        return 128 * (1 + merc / Math.PI);
+      }
+
+      // add commas to large numbers
+      function localizeInt(integer) {
+        return integer.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      }
+
+      function getParameterByName(name) {
+        name = name.replace(/[\[]/, "\\[").replace(/[\]]/, "\\]");
+        var regex = new RegExp("[\\?&]" + name + "=([^&#]*)"), results = regex.exec(location.search);
+        return results == null ? "" : decodeURIComponent(results[1].replace(/\+/g, " "));
+      }
+
+      document.addEventListener('DOMContentLoaded', initialize, false);
+    </script>
+  </head>
+
+  <body>
+    <div id="map-div"></div>
+
+    <div id='playback-control-div' class='map-overlay'>
+      <div><img id="pause-button" src='images/pause.png' /></div>
+      <label>progress <input id="playback-slider" type="range" min="0" max="1" step="1" value="0"></input><span id="segments-status"></span></label>
+      <label>points loaded: <span id="data-status"></span></label>
+      <label>point scale <input id="scale-slider" type="range" min="1" max="5" step=".1" value="2" orient="vertical"></input></label>
+      <label>point alpha <input id="alpha-slider" type="range" min=".1" max="1" step=".1" value=".4" orient="vertical"></input></label>
+      <label>load delay <input id="load-data-timeout-slider" type="range" min="0" max="1000" step="10" value="0" orient="vertical"></input></label>
+      <label>buffer <input id="buffer-slider" type="range" min="60000" max="1500000" step="15000" value="900000" orient="vertical"></input><span id="buffer-status"></span></label>
+    </div>
+
+    <div id='map-key-div' class='map-overlay'>
+      <div>platform type</div>
+      <div><span id='map-key-vessels' class='gradient'>&nbsp;</span>vessels</div>
+      <div><span id='map-key-buoys' class='gradient'>&nbsp;</span>buoys</div>
+      <div><span id='map-key-other' class='gradient'>&nbsp;</span>other</div>
+    </div>
+
+    <div id='map-attribution'>Data from ICOADS</div>
+  </body>
+</html>

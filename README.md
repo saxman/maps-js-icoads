@@ -1,5 +1,5 @@
-http://goo.gl/2u3Ixd
+## http://goo.gl/2u3Ixd
 
-Google Maps JS API v3
-CanvasLayer
-NOAA ICOADS Dataset
+* Google Maps JS API v3
+* CanvasLayer
+* NOAA ICOADS Dataset

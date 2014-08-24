@@ -66,7 +66,8 @@ input[type=range].vertical {
 }
 
 #map-key-buoys {
-  background: linear-gradient(to right, blue, magenta);
+  /*background: linear-gradient(to right, blue, magenta);*/
+  background: linear-gradient(to right, blue, cyan);
 }
 
 #map-key-other {

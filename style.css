@@ -4,24 +4,20 @@ html, body, #map-div {
   height: 100%;
 }
 
-label {display: block;}
+label {
+  display: block;
+}
 
 #map-div {
   max-width: 2047px;
   max-height: 1600px;
 }
 
-input[type=range].vertical {
-  -webkit-appearance: slider-vertical;
-  width: 10px;
-  height: 100%;
-}
-
 #playback-slider {
   vertical-align: middle;
 }
 
-#playback-control-div {
+#viz-control-div {
   position: absolute;
   width: 250px;
   left: 50%;

@@ -7,3 +7,4 @@ http://goo.gl/2u3Ixd
 * [NOAA ICOADS](http://icoads.noaa.gov/)
 
 
+![ICOADS data on a map](/images/screenshot.png?raw=true)

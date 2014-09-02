@@ -32,7 +32,7 @@ var server = http.createServer(function(request, response) {
   // Get the absolute path for the request
   filePath = path.resolve('.' + filePath);
 
-  // Rejesct queries ouside of the server root
+  // Reject queries outside of the server root
   var serverPath = path.resolve('.');
   if (filePath.indexOf(serverPath) != 0 ) {
     log(403, filePath);

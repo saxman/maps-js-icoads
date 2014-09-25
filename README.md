@@ -4,6 +4,7 @@ Geo-temporal data visualization of [ships and buoys](http://icoads.noaa.gov/pt.h
 * [brendankenny/CanvasLayer](https://github.com/brendankenny/CanvasLayer)
 * [NOAA ICOADS](http://icoads.noaa.gov/)
 
+![video of ICOADS data on a map](/images/video.png?raw=true)
 
 ![ICOADS data on a map](/images/screenshot.png?raw=true)
 

@@ -7,4 +7,4 @@ Geo-temporal data visualization of [ships and buoys](http://icoads.noaa.gov/pt.h
 
 ![ICOADS data on a map](/images/screenshot.png?raw=true)
 
-http://goo.gl/2u3Ixd
+This site: http://goo.gl/2u3Ixd

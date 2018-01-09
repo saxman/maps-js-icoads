@@ -42,6 +42,18 @@ var server = http.createServer(function(request, response) {
     return;
   }
 
+  // Reject queries containing directories beginning with '.' (e.g. ".git")
+  var dirs = filePath.split('/');
+  for (i = 0; i < dirs.length; i++) {
+    if (dirs[i][0] == '.') {
+      log(403, filePath);
+      response.writeHeader(403);
+      response.end();
+
+      return;
+    }
+  }
+  
   fs.exists(filePath, function(exists) {
     if (!exists) {
       log(404, filePath);
